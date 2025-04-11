@@ -227,7 +227,7 @@
         }
 
         // Get the texture for a block type, generating it if not cached
-        function getTexture(type) {
+        async function getTexture(type) {
             if (textures[type]) {
                 return textures[type];
             }
@@ -253,12 +253,26 @@
                     );
                 }
             } else if (type.startsWith('custom:')) {
-                // This is a custom texture with a data URL
-                const img = new Image();
-                img.src = type.substring(7); // Remove 'custom:' prefix
-                img.onload = () => {
-                    textureCtx.drawImage(img, 0, 0, TILE_SIZE, TILE_SIZE);
-                };
+                // This is a custom texture with a URL
+                return new Promise((resolve) => {
+                    const img = new Image();
+                    img.crossOrigin = "anonymous"; // Allow loading from other domains
+                    img.src = type.substring(7); // Remove 'custom:' prefix
+                    img.onload = () => {
+                        textureCtx.drawImage(img, 0, 0, TILE_SIZE, TILE_SIZE);
+                        resolve(texture);
+                    };
+                    img.onerror = () => {
+                        // On error, create a fallback texture
+                        textureCtx.fillStyle = '#FF00FF';
+                        textureCtx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+                        textureCtx.fillStyle = '#000000';
+                        textureCtx.font = '12px Arial';
+                        textureCtx.textAlign = 'center';
+                        textureCtx.fillText('Error', TILE_SIZE/2, TILE_SIZE/2);
+                        resolve(texture);
+                    };
+                });
             } else {
                 // Unknown texture type, make it pink for debugging
                 textureCtx.fillStyle = '#FF00FF';
@@ -272,7 +286,7 @@
         }
 
         // Render the world
-        function render() {
+        async function render() {
             // Clear canvas
             ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -301,7 +315,7 @@
                     const screenY = Math.round(canvas.height / 2 + (worldY * TILE_SIZE - camera.y));
                     
                     // Draw the tile
-                    const texture = getTexture(tileType);
+                    const texture = await getTexture(tileType);
                     ctx.drawImage(texture, screenX, screenY, TILE_SIZE, TILE_SIZE);
                 }
             }
@@ -315,18 +329,18 @@
             ctx.fill();
 
             // Update UI
-            positionElement.textContent = `${player.x}, ${player.y}`;
+            positionElement.textContent = `${Math.round(player.x)}, ${Math.round(player.y)}`;
             chunkElement.textContent = `${Math.floor(player.x / CHUNK_SIZE)}, ${Math.floor(player.y / CHUNK_SIZE)}`;
         }
 
         // Update game state
-        function update() {
+        async function update() {
             // Center camera on player
             camera.x = player.x * TILE_SIZE;
             camera.y = player.y * TILE_SIZE;
 
             // Render the game
-            render();
+            await render();
 
             // Request next frame
             requestAnimationFrame(update);
@@ -339,25 +353,29 @@
             try {
                 // Generate image using the LLM
                 const result = await websim.imageGen({
-                    prompt: `top-down game texture: ${prompt}`,
-                    width: 256, // Generate at higher resolution
+                    prompt: `2D top-down seamless tile texture: ${prompt}`,
+                    width: 256,
                     height: 256,
                 });
 
                 // Apply the custom texture to the current block
-                const { chunkX, chunkY, localX, localY } = worldToChunk(player.x, player.y);
+                const { chunkX, chunkY, localX, localY } = worldToChunk(Math.floor(player.x), Math.floor(player.y));
                 const chunkKey = getChunkKey(chunkX, chunkY);
                 const chunk = loadedChunks[chunkKey];
                 
+                if (!chunk) {
+                    throw new Error('Current chunk not loaded');
+                }
+
                 // Store the texture
                 const textureType = `custom:${result.url}`;
                 chunk.data[localY][localX] = textureType;
 
-                // Save the updated chunk
-                await saveChunk(chunk);
-                
                 // Clear texture cache for this type
                 delete textures[textureType];
+                
+                // Save the updated chunk
+                await saveChunk(chunk);
                 
                 // Close the modal
                 textureModal.style.display = 'none';
@@ -466,4 +484,3 @@
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
 </html>
-
